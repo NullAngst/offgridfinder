@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OffGridFinder
+GenericName=Offline Map Search
+Comment=Offline proximity search over OpenStreetMap data
+Exec=OffGridFinder
+Icon=offgridfinder
+Terminal=false
+Categories=Utility;Geography;Education;
+Keywords=map;offline;search;openstreetmap;osm;camping;trail;
+StartupWMClass=OffGridFinder

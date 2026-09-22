@@ -1,0 +1,4 @@
+# Build-only dependencies for producing standalone executables
+pyinstaller>=6.10,<7
+# Needed only to regenerate icons with tools/make_icon.py
+pillow>=10

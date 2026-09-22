@@ -1,0 +1,2 @@
+# Runtime dependency (only needed to import OSM data; searching works without it)
+osmium>=4.0
