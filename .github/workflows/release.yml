@@ -1,0 +1,144 @@
+# Builds standalone executables for Linux, Windows and macOS.
+#
+#   * Push a tag like v1.0.0  -> build all platforms, run the self-test on each
+#                                executable, and publish a GitHub Release.
+#   * Run manually (Actions tab -> "Build and release" -> Run workflow)
+#                             -> build and test only; download the executables
+#                                from the run's Artifacts section.
+#
+# The tag must match APP_VERSION in offgrid_finder.py, or the build stops.
+name: Build and release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The Linux binary needs glibc >= the build machine's (2.35 on 22.04).
+          # If GitHub retires this runner image, switch to ubuntu-24.04 (glibc 2.39).
+          - os: ubuntu-22.04
+            target: linux-x86_64
+          - os: windows-latest
+            target: windows-x86_64
+          - os: macos-latest
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Read version
+        run: |
+          VERSION="$(python offgrid_finder.py --version)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building OffGridFinder $VERSION"
+
+      - name: Check tag matches APP_VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match APP_VERSION $VERSION in offgrid_finder.py"
+            exit 1
+          fi
+
+      - name: Self-test (source)
+        run: python offgrid_finder.py --self-test
+
+      - name: Build executable
+        run: pyinstaller --noconfirm --clean offgridfinder.spec
+
+      - name: Self-test (Linux executable)
+        if: runner.os == 'Linux'
+        run: ./dist/OffGridFinder --self-test
+
+      - name: Self-test (macOS app)
+        if: runner.os == 'macOS'
+        run: ./dist/OffGridFinder.app/Contents/MacOS/OffGridFinder --self-test
+
+      - name: Self-test (Windows executable)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Windowed executables detach from the console, so wait on the process and read its log.
+          $log = Join-Path $env:RUNNER_TEMP "selftest.log"
+          $p = Start-Process -FilePath "dist\OffGridFinder.exe" -ArgumentList "--self-test", "--log", "`"$log`"" -Wait -PassThru
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.ExitCode -ne 0) { Write-Error "Self-test failed with exit code $($p.ExitCode)"; exit 1 }
+
+      - name: Package
+        run: |
+          mkdir -p release
+          NAME="OffGridFinder-${VERSION}-${{ matrix.target }}"
+          case "${{ runner.os }}" in
+            Linux)
+              mkdir -p "stage/$NAME"
+              cp dist/OffGridFinder "stage/$NAME/"
+              cp assets/icon-256.png "stage/$NAME/offgridfinder.png"
+              cp packaging/linux/offgridfinder.desktop packaging/linux/install.sh "stage/$NAME/"
+              cp README.md LICENSE "stage/$NAME/"
+              chmod +x "stage/$NAME/OffGridFinder" "stage/$NAME/install.sh"
+              tar -C stage -czf "release/$NAME.tar.gz" "$NAME"
+              ;;
+            Windows)
+              cp dist/OffGridFinder.exe "release/$NAME.exe"
+              ;;
+            macOS)
+              ditto -c -k --sequesterRsrc --keepParent dist/OffGridFinder.app "release/$NAME.zip"
+              ;;
+          esac
+          ls -la release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
