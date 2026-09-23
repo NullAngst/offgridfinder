@@ -59,7 +59,7 @@ except ImportError:  # the GUI still runs for searching existing data
     HAVE_OSMIUM = False
 
 APP_NAME = "OffGridFinder"
-APP_VERSION = "1.0.0"
+APP_VERSION = "V1.0.0"
 SCHEMA_VERSION = "1"
 GEOFABRIK_INDEX_URL = "https://download.geofabrik.de/index-v1-nogeom.json"
 USER_AGENT = f"{APP_NAME}/{APP_VERSION} (+https://github.com/NullAngst/OffGridFinder)"
